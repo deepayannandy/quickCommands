@@ -1,0 +1,11 @@
+// only needed if we are using Ubuntu container
+apt install curl 
+// Install Docker on a fresh machine
+curl -sSL https://get.docker.com | sh
+// Create a new directory inside home directory to store files for the container 
+cd home/
+mkdir dbBackup
+// -e POSTGRES_PASSWORD=<Password> is use to set the base user Password
+// -v use to mount a virtual drive for the docker container
+// --restart unless-stopped is used to make the container running 24/4 and to restart the container after reboot
+docker run --name dev-postgresql -p 5432:5432 -e POSTGRES_PASSWORD=<Password>  -v /home/dbBackup:/var/lib/postgresql/data --restart unless-stopped -d postgres 

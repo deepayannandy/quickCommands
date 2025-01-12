@@ -1,0 +1,18 @@
+// only needed if we are using Ubuntu container
+
+apt install curl 
+
+// Install Docker on a fresh machine
+
+curl -sSL https://get.docker.com | sh
+
+// Create a new directory inside home directory to store files for the container 
+
+cd home/
+mkdir dbBackup
+
+// -e MONGO_INITDB_ROOT_PASSWORD=<Password> is used to set the base user Password
+// -v used to mount a virtual drive for the docker container
+// --restart unless-stopped is used to make the container running 24/4 and to restart the container after reboot
+
+docker run -d --name mongod_demo -e MONGO_INITDB_ROOT_USERNAME=<Username> -e MONGO_INITDB_ROOT_PASSWORD=<Password> -p 27017:27017 -v mongodemo:/home/dbBackup mongo:latest --restart unless-stopped

@@ -1,15 +1,15 @@
 // only needed if we are using Ubuntu container
 
-apt install curl 
+sudo apt install curl 
 
 // Install Docker on a fresh machine
 
-curl -sSL https://get.docker.com | sh
+sudo curl -sSL https://get.docker.com | sh
 
 // Create a new directory inside home directory to store files for the container 
 
-cd home/
-mkdir dbBackup
+cd /home/
+sudo mkdir dbBackup
 
 // -e MONGO_INITDB_ROOT_PASSWORD=<Password> is used to set the base user Password
 // -v used to mount a virtual drive for the docker container

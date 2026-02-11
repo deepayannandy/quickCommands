@@ -1,0 +1,59 @@
+sudo apt-get update && sudo apt-get upgrade 
+
+curl -sSL https://get.docker.com | sh
+
+sudo mkdir -p /opt/stacks/mqtt
+
+cd /opt/stacks/mqtt
+
+sudo nano compose.yaml
+//Pest this in comepose.yml 
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto
+    container_name: mosquitto
+    volumes:
+      - ./config:/mosquitto/config
+      - ./data:/mosquitto/data
+      - ./log:/mosquitto/log
+    ports:
+      - 1883:1883
+      - 9001:9001
+    restart: unless-stopped
+    stdin_open: true 
+    tty: true
+
+
+sudo mkdir config
+sudo nano ./config/mosquitto.conf
+
+//Pest this in mosquitto.conf 
+listener 1883
+listener 9001
+protocol websockets
+persistence true
+persistence_file mosquitto.db
+persistence_location /mosquitto/data/
+
+#Authentication
+allow_anonymous false
+password_file /mosquitto/config/pwfile
+
+
+sudo touch ./config/pwfile
+sudo chmod 0700 ./config/pwfile
+
+docker compose up -d
+
+cd config/
+
+chown root /mosquitto/config/pwfile
+
+
+sudo docker compose exec mosquitto sh
+
+mosquitto_passwd -c /mosquitto/config/pwfile <USERNAME>
+
+
+sudo docker compose restart mosquitto

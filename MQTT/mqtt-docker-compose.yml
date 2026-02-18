@@ -1,0 +1,21 @@
+version: "1.0"
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto
+    container_name: mosquitto # Name the container for easier management
+    volumes:
+      - ./config:/mosquitto/config # Mount the configuration directory
+      - ./data:/mosquitto/data # Mount the data directory for persistence
+      - ./log:/mosquitto/log # Mount the log directory for log management
+    ports:
+      - 1883:1883
+      - 9001:9001
+    restart: unless-stopped. # Restart the container unless it is explicitly stopped
+    stdin_open: true
+    tty: true
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "30"

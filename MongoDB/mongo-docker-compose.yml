@@ -1,0 +1,26 @@
+version: "1.0"
+
+services:
+  mongodb:
+    image: mongo:latest
+    container_name: iiot_core_db # Name the container for easier management
+    restart: always
+    environment:
+      # Optional: Add credentials for production security
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=your_secure_password
+    ports:
+      - "27017:27017"
+
+    # 1. Local Directory Data Storage
+    volumes:
+      - ./mongodb_data:/data/db
+
+    # 2. Log Management (Approx. 30 days)
+    # We set 30 files at 10MB each.
+    # For a DB, logs are usually smaller than app logs, so 300MB covers a long history.
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "30"

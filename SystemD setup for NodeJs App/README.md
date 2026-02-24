@@ -10,7 +10,7 @@ Setting up a SystemD script for your Node.js backend is a professional-grade app
 
 - Logging Integration: It pipes all console.log and console.error outputs directly to journald, providing a centralized location for debugging system health.
 
-- Resource Control: You can set limits on CPU and Memory usage, preventing your backend from starving other critical system processes on the ESP32-S3 edge or host server.
+- Resource Control: You can set limits on CPU and Memory usage, preventing your backend from starving other critical system processes on the host server.
 
 - Dependency Management: You can configure the script to wait until the network or MongoDB is fully active before attempting to start the service.
 

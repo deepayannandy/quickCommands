@@ -1,0 +1,26 @@
+[Unit]
+Description=<Service Description>
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu    #User account 
+WorkingDirectory=<Directory of your code>
+
+# Load env file
+EnvironmentFile=<Path to your ENV file>
+
+ExecStart=<Node Path> index.js
+
+Restart=always
+RestartSec=5
+
+StandardOutput=append:/var/log/<LogFileName>.log
+StandardError=append:/var/log/<ErrorFileName>.log
+
+SyslogIdentifier=<Task Identifier>
+
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

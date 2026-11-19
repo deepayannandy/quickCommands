@@ -1,21 +1,92 @@
-version: "1.0"
-
 services:
-  mosquitto:
-    image: eclipse-mosquitto
-    container_name: mosquitto # Name the container for easier management
+  # One-shot helper: creates the data folders, gives them to the mosquitto user (uid 1883)
+  # and adds/updates the user from .env in the password file
+  mqtt-init:
+    image: eclipse-mosquitto:2.0
+    environment:
+      MQTT_USERNAME: ${MQTT_USERNAME}
+      MQTT_PASSWORD: ${MQTT_PASSWORD}
     volumes:
-      - ./config:/mosquitto/config # Mount the configuration directory
-      - ./data:/mosquitto/data # Mount the data directory for persistence
-      - ./log:/mosquitto/log # Mount the log directory for log management
+      - ${DATA_DIR:-./mosquitto-data}:/data
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        set -e
+        mkdir -p /data/data /data/log /data/auth
+        if [ -s /data/auth/passwd ]; then
+          mosquitto_passwd -b /data/auth/passwd "$${MQTT_USERNAME}" "$${MQTT_PASSWORD}"
+        else
+          mosquitto_passwd -c -b /data/auth/passwd "$${MQTT_USERNAME}" "$${MQTT_PASSWORD}"
+        fi
+        chown -R 1883:1883 /data/data /data/log /data/auth
+        chmod 700 /data/auth
+        chmod 600 /data/auth/passwd
+    restart: "no"
+
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: mosquitto
+    restart: unless-stopped
+    depends_on:
+      mqtt-init:
+        condition: service_completed_successfully
+    environment:
+      # used only by the health check below
+      MQTT_USERNAME: ${MQTT_USERNAME}
+      MQTT_PASSWORD: ${MQTT_PASSWORD}
     ports:
-      - 1883:1883
-      - 9001:9001
-    restart: unless-stopped. # Restart the container unless it is explicitly stopped
-    stdin_open: true
-    tty: true
-    logging:
-      driver: "json-file"
+      - "${MQTT_PORT:-1883}:1883" # MQTT
+      - "${MQTT_WS_PORT:-9001}:9001" # MQTT over WebSockets
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro # broker config (from this repo)
+      - ${DATA_DIR:-./mosquitto-data}/data:/mosquitto/data # retained messages and sessions
+      - ${DATA_DIR:-./mosquitto-data}/log:/mosquitto/log # mosquitto.log on the host
+      - ${DATA_DIR:-./mosquitto-data}/auth:/mosquitto/auth # password file
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mosquitto_sub -h 127.0.0.1 -p 1883 -u \"$${MQTT_USERNAME}\" -P \"$${MQTT_PASSWORD}\" -t '$$SYS/broker/uptime' -C 1 -W 5",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging: # caps Docker's own container logs too
+      driver: json-file
       options:
         max-size: "10m"
-        max-file: "30"
+        max-file: "3"
+
+  # Once a day: rotates mosquitto.log (one file per day) and deletes rotated logs
+  # older than LOG_RETENTION_DAYS
+  log-cleaner:
+    image: alpine:3.20
+    container_name: mosquitto-log-cleaner
+    restart: unless-stopped
+    depends_on:
+      - mosquitto
+    environment:
+      LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-30}
+    volumes:
+      - ${DATA_DIR:-./mosquitto-data}/log:/logs
+    command:
+      - sh
+      - -c
+      - |
+        while true; do
+          if [ -s /logs/mosquitto.log ]; then
+            rotated="/logs/mosquitto.log.$$(date +%Y-%m-%dT%H-%M-%S)"
+            echo "$$(date) - rotating mosquitto.log to $${rotated}"
+            # copy then truncate: mosquitto writes in append mode, so it keeps logging to the emptied file
+            cp /logs/mosquitto.log "$${rotated}" && : > /logs/mosquitto.log
+          fi
+          echo "$$(date) - removing logs older than $${LOG_RETENTION_DAYS} days"
+          find /logs -type f -name 'mosquitto.log.*' -mtime +$${LOG_RETENTION_DAYS} -print -delete
+          sleep 86400
+        done
+    logging:
+      driver: json-file
+      options:
+        max-size: "1m"
+        max-file: "1"

@@ -1,26 +1,53 @@
+# systemd unit for a Node.js app.
+# Copy to /etc/systemd/system/<app-name>.service, replace every <...>, then follow the README.
+# Note: systemd only allows comments on their own line, never after a value.
+
 [Unit]
 Description=<Service Description>
-After=network.target
+# Wait for the network to be actually up, not just configured
+Wants=network-online.target
+After=network-online.target
+# If your app needs a database running in Docker on this host, uncomment:
+# After=network-online.target docker.service
+# Requires=docker.service
 
 [Service]
 Type=simple
-User=ubuntu    #User account 
-WorkingDirectory=<Directory of your code>
+# Linux user that runs the app (never root). Find yours with: whoami
+User=<user>
+Group=<user>
+WorkingDirectory=<absolute path to your app, e.g. /home/ubuntu/my-app>
 
-# Load env file
-EnvironmentFile=<Path to your ENV file>
+Environment=NODE_ENV=production
+# Optional: load variables from a .env file (KEY=value lines). Remove if not needed.
+EnvironmentFile=<absolute path to your .env file>
 
-ExecStart=<Node Path> index.js
+# Absolute path to node (find it with: which node) and your entry file
+ExecStart=<node path, e.g. /usr/bin/node> index.js
 
+# Restart on crash, 5 seconds after it stops
 Restart=always
 RestartSec=5
 
-StandardOutput=append:/var/log/<LogFileName>.log
-StandardError=append:/var/log/<ErrorFileName>.log
+# Give the app 30 seconds to finish requests and close DB connections on stop
+TimeoutStopSec=30
 
-SyslogIdentifier=<Task Identifier>
+# Logs go to journald (rotated automatically). Read them with: journalctl -u <app-name>
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=<app-name>
 
+# Allow many open connections / files
 LimitNOFILE=65536
+
+# Optional resource limits, uncomment to use
+# MemoryMax=1G
+# CPUQuota=80%
+
+# Basic hardening (safe for most apps)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
 
 [Install]
 WantedBy=multi-user.target

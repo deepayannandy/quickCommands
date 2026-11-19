@@ -1,0 +1,87 @@
+services:
+  # One-shot helper: makes the host log folder writable by the postgres user (uid 999)
+  log-init:
+    image: alpine:3.20
+    command:
+      [
+        "sh",
+        "-c",
+        "mkdir -p /logs && chown -R 999:999 /logs && chmod 700 /logs",
+      ]
+    volumes:
+      - ${DATA_DIR:-./postgres-data}/logs:/logs
+    restart: "no"
+
+  postgres:
+    image: postgres:17
+    container_name: postgres
+    restart: unless-stopped
+    depends_on:
+      log-init:
+        condition: service_completed_successfully
+    env_file: .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      PGDATA: /var/lib/postgresql/data/pgdata
+      TZ: ${TZ:-Asia/Kolkata}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - ${DATA_DIR:-./postgres-data}/db:/var/lib/postgresql/data # actual DB files on the host
+      - ${DATA_DIR:-./postgres-data}/logs:/var/log/postgresql # PostgreSQL log files on the host
+    command:
+      - "postgres"
+      - "-c"
+      - "logging_collector=on"
+      - "-c"
+      - "log_directory=/var/log/postgresql"
+      - "-c"
+      - "log_filename=postgresql-%Y-%m-%d.log" # one file per day
+      - "-c"
+      - "log_rotation_age=1d"
+      - "-c"
+      - "log_rotation_size=0"
+      - "-c"
+      - "log_file_mode=0640"
+      - "-c"
+      - "log_line_prefix=%m [%p] %u@%d "
+      - "-c"
+      - "log_timezone=${TZ:-Asia/Kolkata}"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: # caps Docker's own container logs too
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Deletes PostgreSQL log files older than LOG_RETENTION_DAYS, checked once a day
+  log-cleaner:
+    image: alpine:3.20
+    container_name: postgres-log-cleaner
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    environment:
+      LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-30}
+    volumes:
+      - ${DATA_DIR:-./postgres-data}/logs:/logs
+    command:
+      - sh
+      - -c
+      - |
+        while true; do
+          echo "$$(date) - removing logs older than $${LOG_RETENTION_DAYS} days"
+          find /logs -type f -name '*.log' -mtime +$${LOG_RETENTION_DAYS} -print -delete
+          sleep 86400
+        done
+    logging:
+      driver: json-file
+      options:
+        max-size: "1m"
+        max-file: "1"

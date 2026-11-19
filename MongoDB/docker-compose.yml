@@ -1,26 +1,85 @@
-version: "1.0"
-
 services:
-  mongodb:
-    image: mongo:latest
-    container_name: iiot_core_db # Name the container for easier management
-    restart: always
-    environment:
-      # Optional: Add credentials for production security
-      - MONGO_INITDB_ROOT_USERNAME=admin
-      - MONGO_INITDB_ROOT_PASSWORD=your_secure_password
-    ports:
-      - "27017:27017"
-
-    # 1. Local Directory Data Storage
+  # One-shot helper: makes the host log folder writable by the mongodb user (uid 999)
+  log-init:
+    image: alpine:3.20
+    command:
+      [
+        "sh",
+        "-c",
+        "mkdir -p /logs && chown -R 999:999 /logs && chmod 700 /logs",
+      ]
     volumes:
-      - ./mongodb_data:/data/db
+      - ${DATA_DIR:-./mongodb-data}/logs:/logs
+    restart: "no"
 
-    # 2. Log Management (Approx. 30 days)
-    # We set 30 files at 10MB each.
-    # For a DB, logs are usually smaller than app logs, so 300MB covers a long history.
-    logging:
-      driver: "json-file"
+  mongodb:
+    image: mongo:8.0
+    container_name: mongodb
+    restart: unless-stopped
+    depends_on:
+      log-init:
+        condition: service_completed_successfully
+    env_file: .env
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+      TZ: ${TZ:-Asia/Kolkata}
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+    volumes:
+      - ${DATA_DIR:-./mongodb-data}/db:/data/db # actual DB files on the host
+      - ${DATA_DIR:-./mongodb-data}/logs:/var/log/mongodb # MongoDB log files on the host
+    command:
+      - "mongod"
+      - "--bind_ip_all"
+      - "--logpath"
+      - "/var/log/mongodb/mongod.log"
+      - "--logappend" # keep appending to mongod.log across restarts
+      - "--logRotate"
+      - "rename" # on rotation, mongod.log is renamed to mongod.log.<timestamp>
+      - "--timeStampFormat"
+      - "iso8601-local" # log timestamps in TZ
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging: # caps Docker's own container logs too
+      driver: json-file
       options:
         max-size: "10m"
-        max-file: "30"
+        max-file: "3"
+
+  # Once a day: rotates mongod.log (one file per day) and deletes rotated logs
+  # older than LOG_RETENTION_DAYS
+  log-cleaner:
+    image: mongo:8.0 # reuses the same image for mongosh
+    container_name: mongodb-log-cleaner
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-30}
+      MONGO_USER: ${MONGO_INITDB_ROOT_USERNAME}
+      MONGO_PASS: ${MONGO_INITDB_ROOT_PASSWORD}
+      TZ: ${TZ:-Asia/Kolkata}
+    volumes:
+      - ${DATA_DIR:-./mongodb-data}/logs:/logs
+    entrypoint: ["bash", "-c"]
+    command:
+      - |
+        while true; do
+          echo "$$(date) - rotating mongod.log"
+          mongosh --quiet --host mongodb -u "$${MONGO_USER}" -p "$${MONGO_PASS}" \
+            --authenticationDatabase admin --eval 'db.adminCommand({ logRotate: 1 })'
+          echo "$$(date) - removing logs older than $${LOG_RETENTION_DAYS} days"
+          find /logs -type f -name 'mongod.log.*' -mtime +$${LOG_RETENTION_DAYS} -print -delete
+          sleep 86400
+        done
+    logging:
+      driver: json-file
+      options:
+        max-size: "1m"
+        max-file: "1"
